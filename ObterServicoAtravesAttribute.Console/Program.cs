@@ -1,21 +1,26 @@
 ﻿using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
-using ObterServicoAtravesAttribute.Console.Cache;
+using ObterServicoAtravesAttribute.Console.Servicos;
 
 namespace ObterServicoAtravesAttribute.Console
 {
     class Program
     {
+        // O gerenciador de serviços global
+        private static GerenciadorServicos _gerenciadorServicos;
+
         static void Main(string[] args)
         {
             System.Console.WriteLine("Demonstração de obtenção de serviços através de atributos");
             System.Console.WriteLine("==========================================================");
             System.Console.WriteLine();
 
-            // Configurando o cache local para demonstração
-            // Em produção, você usaria uma implementação para Redis ou outro cache distribuído
-            ServicoFactory.ConfigurarCacheDistribuido(new CacheLocal());
+            // Configurando o provedor de serviços para injeção de dependência
+            var serviceProvider = ConfigurarServicos();
+            
+            // Inicializando o gerenciador de serviços
+            _gerenciadorServicos = new GerenciadorServicos(serviceProvider);
 
             // Teste básico
             TestarServicoBasico();
@@ -23,8 +28,8 @@ namespace ObterServicoAtravesAttribute.Console
             // Teste de performance
             TestarPerformance();
             
-            // Teste de invalidação de cache
-            TestarInvalidacaoCache();
+            // Teste de cache local de instâncias
+            TestarCacheInstancias();
             
             // Teste de carga distribuída (simulação)
             TestarCargaDistribuida();
@@ -33,22 +38,37 @@ namespace ObterServicoAtravesAttribute.Console
             System.Console.ReadKey();
         }
 
+        static SimpleServiceProvider ConfigurarServicos()
+        {
+            var serviceProvider = new SimpleServiceProvider();
+            
+            // Aqui você pode registrar implementações específicas ou mockadas para testes
+            // Por exemplo:
+            // serviceProvider.RegisterSingleton<IDadosBasicosServico>(new DadosBasicosMockServico());
+            
+            // Registrar os serviços automaticamente
+            serviceProvider.Register<DadosBasicosServico, DadosBasicosServico>();
+            serviceProvider.Register<DadosComplementaresServico, DadosComplementaresServico>();
+            
+            return serviceProvider;
+        }
+
         static void TestarServicoBasico()
         {
             try
             {
                 System.Console.WriteLine("Obtendo serviço DadosBasicos:");
-                var servicoDadosBasicos = ServicoFactory.ObterServico("DadosBasicos");
+                var servicoDadosBasicos = _gerenciadorServicos.ObterServico("DadosBasicos");
                 System.Console.WriteLine($"Resultado: {servicoDadosBasicos.Executar()}");
                 
                 System.Console.WriteLine("\nObtendo serviço DadosComplementares:");
-                var servicoDadosComplementares = ServicoFactory.ObterServico("DadosComplementares");
+                var servicoDadosComplementares = _gerenciadorServicos.ObterServico("DadosComplementares");
                 System.Console.WriteLine($"Resultado: {servicoDadosComplementares.Executar()}");
                 
                 System.Console.WriteLine("\nTentando obter serviço inexistente:");
                 try
                 {
-                    var servicoInexistente = ServicoFactory.ObterServico("ServicoInexistente");
+                    var servicoInexistente = _gerenciadorServicos.ObterServico("ServicoInexistente");
                 }
                 catch (Exception ex)
                 {
@@ -67,56 +87,56 @@ namespace ObterServicoAtravesAttribute.Console
             
             const int numeroIteracoes = 100000;
             
-            // Teste sem cache (primeira chamada)
-            System.Console.WriteLine($"\nPrimeira chamada (inicialização do cache de tipos):");
+            // Primeira chamada (inicialização)
+            System.Console.WriteLine($"\nPrimeira chamada (inicialização):");
             var stopwatch = Stopwatch.StartNew();
-            var servico = ServicoFactory.ObterServico("DadosBasicos");
+            var servico = _gerenciadorServicos.ObterServico("DadosBasicos");
             stopwatch.Stop();
             System.Console.WriteLine($"Tempo para primeira chamada: {stopwatch.ElapsedMilliseconds}ms");
             
-            // Teste com cache de tipos mas sem cache de instâncias
-            System.Console.WriteLine($"\nChamadas sem cache de instâncias ({numeroIteracoes} iterações):");
+            // Teste sem reutilização de instâncias
+            System.Console.WriteLine($"\nChamadas sem reutilização de instâncias ({numeroIteracoes} iterações):");
             stopwatch.Restart();
             for (int i = 0; i < numeroIteracoes; i++)
             {
-                servico = ServicoFactory.ObterServico("DadosBasicos", false);
+                servico = _gerenciadorServicos.ObterServico("DadosBasicos", false);
             }
             stopwatch.Stop();
             System.Console.WriteLine($"Tempo total: {stopwatch.ElapsedMilliseconds}ms");
             System.Console.WriteLine($"Tempo médio por chamada: {(double)stopwatch.ElapsedMilliseconds / numeroIteracoes}ms");
             
-            // Teste com cache completo
-            System.Console.WriteLine($"\nChamadas com cache completo ({numeroIteracoes} iterações):");
+            // Teste com reutilização de instâncias
+            System.Console.WriteLine($"\nChamadas com reutilização de instâncias ({numeroIteracoes} iterações):");
             stopwatch.Restart();
             for (int i = 0; i < numeroIteracoes; i++)
             {
-                servico = ServicoFactory.ObterServico("DadosBasicos", true);
+                servico = _gerenciadorServicos.ObterServico("DadosBasicos", true);
             }
             stopwatch.Stop();
             System.Console.WriteLine($"Tempo total: {stopwatch.ElapsedMilliseconds}ms");
             System.Console.WriteLine($"Tempo médio por chamada: {(double)stopwatch.ElapsedMilliseconds / numeroIteracoes}ms");
         }
         
-        static void TestarInvalidacaoCache()
+        static void TestarCacheInstancias()
         {
-            System.Console.WriteLine("\nTestando invalidação de cache:");
+            System.Console.WriteLine("\nTestando cache de instâncias:");
             
             // Obtendo primeira vez
-            var servico1 = ServicoFactory.ObterServico("DadosBasicos");
+            var servico1 = _gerenciadorServicos.ObterServico("DadosBasicos");
             System.Console.WriteLine($"Instância 1: {servico1.GetHashCode()}");
             
             // Obtendo outra vez (deve ser a mesma instância)
-            var servico2 = ServicoFactory.ObterServico("DadosBasicos");
+            var servico2 = _gerenciadorServicos.ObterServico("DadosBasicos");
             System.Console.WriteLine($"Instância 2: {servico2.GetHashCode()}");
             System.Console.WriteLine($"Mesma instância: {object.ReferenceEquals(servico1, servico2)}");
             
-            // Invalidando cache
-            System.Console.WriteLine("Invalidando cache para DadosBasicos...");
-            ServicoFactory.InvalidarCacheServico("DadosBasicos");
+            // Limpando o cache de instâncias
+            System.Console.WriteLine("Limpando cache para DadosBasicos...");
+            _gerenciadorServicos.LimparInstanciaServico("DadosBasicos");
             
             // Obtendo novamente (deve ser nova instância)
-            var servico3 = ServicoFactory.ObterServico("DadosBasicos");
-            System.Console.WriteLine($"Instância 3 (após invalidação): {servico3.GetHashCode()}");
+            var servico3 = _gerenciadorServicos.ObterServico("DadosBasicos");
+            System.Console.WriteLine($"Instância 3 (após limpeza): {servico3.GetHashCode()}");
             System.Console.WriteLine($"Mesma instância que a anterior: {object.ReferenceEquals(servico2, servico3)}");
         }
         
@@ -138,7 +158,7 @@ namespace ObterServicoAtravesAttribute.Console
                     {
                         // Alternar entre os dois serviços
                         var identificador = j % 2 == 0 ? "DadosBasicos" : "DadosComplementares";
-                        var servico = ServicoFactory.ObterServico(identificador);
+                        var servico = _gerenciadorServicos.ObterServico(identificador);
                         
                         // Simulando alguma operação com o serviço
                         var resultado = servico.Executar();
